@@ -4,33 +4,25 @@ import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import org.webrtc.IceCandidate
 import org.webrtc.SessionDescription
-import timber.log.Timber
+import java.util.*
 
-class SignallingClient(private val listener: SignallingClientListener) {
-
+class FirebaseSignallingClient(private val listener: SignallingClientListener) {
     private fun subscribeForAnswer(id: String) {
-        Timber.tag("WEB_RTC").d("subscribeForAnswer")
         Firebase.firestore
             .collection("rooms")
             .document(id)
             .addSnapshotListener { snapshot, e ->
-                if (e != null) {
-                    Timber.tag("WEB_RTC").e("error" + e.message)
-                    return@addSnapshotListener
-                }
+                if (e != null) return@addSnapshotListener
 
-                Timber.tag("WEB_RTC").d("subscribeForAnswer success ")
                 if (snapshot != null && snapshot.exists()) {
                     val remoteAnswer = snapshot.data?.get("answer")
-                    Timber.tag("WEB_RTC").d("subscribeForAnswer success +")
-
 
                     remoteAnswer ?: return@addSnapshotListener
 
                     listener.onAnswerReceived(
                         SessionDescription(
                             SessionDescription.Type.ANSWER,
-                            (remoteAnswer as HashMap<String, String>)["sdp"]
+                            (remoteAnswer as HashMap<*, *>)["sdp"] as String?
                         )
                     )
                 }
@@ -38,7 +30,10 @@ class SignallingClient(private val listener: SignallingClientListener) {
     }
 
     fun createOffer(desc: SessionDescription?, id: String) {
-        val offer = hashMapOf("type" to desc?.type?.name?.toLowerCase(), "sdp" to desc?.description)
+        val offer = hashMapOf(
+            "type" to desc?.type?.name?.toLowerCase(Locale.getDefault()),
+            "sdp" to desc?.description
+        )
         Firebase.firestore
             .collection("rooms")
             .document(id)
@@ -50,8 +45,8 @@ class SignallingClient(private val listener: SignallingClientListener) {
         Firebase.firestore
             .collection("rooms")
             .add(emptyMap<String, String>())
-            .addOnSuccessListener {
-                    documentReference -> listener.onRoomCreated(documentReference.id)
+            .addOnSuccessListener { documentReference ->
+                listener.onRoomCreated(documentReference.id)
             }
     }
 
@@ -61,16 +56,13 @@ class SignallingClient(private val listener: SignallingClientListener) {
         val ice = hashMapOf(
             "candidate" to iceCandidate.sdp,
             "sdpMLineIndex" to iceCandidate.sdpMLineIndex,
-            "sdpMid" to iceCandidate.sdpMid)
+            "sdpMid" to iceCandidate.sdpMid
+        )
 
         Firebase.firestore
             .collection("rooms")
             .document(id)
             .collection(name).add(ice)
-            .addOnSuccessListener { Timber.tag("WEB_RTC").e("collectIceCandidates SUCCESS") }
-            .addOnFailureListener {
-                Timber.tag("WEB_RTC").e("collectIceCandidates FAILURE: " + it.message)
-            }
     }
 
     fun getRemoteIceCandidates(id: String, name: String) {
@@ -80,24 +72,27 @@ class SignallingClient(private val listener: SignallingClientListener) {
             .collection(name)
             .addSnapshotListener { snapshot, e ->
                 if (e != null) {
-                    Timber.tag("WEB_RTC").e("error" + e.message)
                     return@addSnapshotListener
                 }
 
                 snapshot?.documentChanges?.forEach {
                     val data = it.document.data
-                    Timber.tag("WEB_RTC").d("ice " + data)
-                    listener.onIceCandidateReceived(IceCandidate(
-                        data["sdpMid"] as String?,
-                        (data["sdpMLineIndex"] as Long).toInt(),
-                        data["candidate"] as String?
-                    ))
+                    listener.onIceCandidateReceived(
+                        IceCandidate(
+                            data["sdpMid"] as String?,
+                            (data["sdpMLineIndex"] as Long).toInt(),
+                            data["candidate"] as String?
+                        )
+                    )
                 }
             }
     }
 
     fun createAnswer(desc: SessionDescription?, id: String) {
-        val answer = hashMapOf("type" to desc?.type?.name?.toLowerCase(), "sdp" to desc?.description)
+        val answer = hashMapOf(
+            "type" to desc?.type?.name?.toLowerCase(Locale.getDefault()),
+            "sdp" to desc?.description
+        )
         Firebase.firestore
             .collection("rooms")
             .document(id)
@@ -105,8 +100,6 @@ class SignallingClient(private val listener: SignallingClientListener) {
     }
 
     fun getRemoteOffer(roomId: String) {
-        Timber.tag("WEB_RTC").e("getRemoteOffer id " + roomId)
-
         Firebase.firestore
             .collection("rooms")
             .document(roomId).get().addOnSuccessListener {
@@ -117,7 +110,7 @@ class SignallingClient(private val listener: SignallingClientListener) {
                 listener.onOfferReceived(
                     SessionDescription(
                         SessionDescription.Type.OFFER,
-                        (remoteOffer as HashMap<String, String>)["sdp"]
+                        (remoteOffer as HashMap<*, *>)["sdp"] as String?
                     )
                 )
             }

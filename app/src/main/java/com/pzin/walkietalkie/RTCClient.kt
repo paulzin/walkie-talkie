@@ -3,12 +3,15 @@ package com.pzin.walkietalkie
 import android.app.Application
 import android.content.Context
 import org.webrtc.*
+import org.webrtc.PeerConnection
 import timber.log.Timber
+
 
 class RTCClient(
     context: Application,
     observer: PeerConnection.Observer,
-    private var signallingClient: SignallingClient
+    private var cameraControls: CameraControlsListener,
+    private var signallingClient: FirebaseSignallingClient
 ) {
 
     companion object {
@@ -28,6 +31,8 @@ class RTCClient(
         ).createIceServer()
     )
 
+    private var isFrontFacingCamera = true
+
     private val peerConnectionFactory by lazy { buildPeerConnectionFactory() }
     private val videoCapturer by lazy { getVideoCapturer(context) }
     private val localVideoSource by lazy { peerConnectionFactory.createVideoSource(false) }
@@ -35,8 +40,6 @@ class RTCClient(
 
     private fun initPeerConnectionFactory(context: Application) {
         val options = PeerConnectionFactory.InitializationOptions.builder(context)
-            .setEnableInternalTracer(true)
-            .setFieldTrials("WebRTC-H264HighProfile/Enabled/")
             .createInitializationOptions()
         PeerConnectionFactory.initialize(options)
     }
@@ -45,18 +48,22 @@ class RTCClient(
         return PeerConnectionFactory
             .builder()
             .setVideoDecoderFactory(DefaultVideoDecoderFactory(rootEglBase.eglBaseContext))
-            .setVideoEncoderFactory(DefaultVideoEncoderFactory(rootEglBase.eglBaseContext, true, true))
-            .setOptions(PeerConnectionFactory.Options().apply {
-                disableEncryption = true
-                disableNetworkMonitor = true
-            })
+            .setVideoEncoderFactory(
+                DefaultVideoEncoderFactory(
+                    rootEglBase.eglBaseContext,
+                    true,
+                    true
+                )
+            )
+            .setOptions(PeerConnectionFactory.Options())
             .createPeerConnectionFactory()
     }
 
-    private fun buildPeerConnection(observer: PeerConnection.Observer) = peerConnectionFactory.createPeerConnection(
-        iceServer,
-        observer
-    )
+    private fun buildPeerConnection(observer: PeerConnection.Observer) =
+        peerConnectionFactory.createPeerConnection(
+            iceServer,
+            observer
+        )
 
     private fun getVideoCapturer(context: Context) =
         Camera2Enumerator(context).run {
@@ -73,13 +80,37 @@ class RTCClient(
         init(rootEglBase.eglBaseContext, null)
     }
 
+    fun switchCamera() {
+        videoCapturer.switchCamera(object : CameraVideoCapturer.CameraSwitchHandler {
+            override fun onCameraSwitchDone(p0: Boolean) {
+                isFrontFacingCamera = !isFrontFacingCamera
+                cameraControls.onSwitchCamera(shouldMirror = isFrontFacingCamera)
+            }
+
+            override fun onCameraSwitchError(p0: String?) {
+            }
+        })
+    }
+
     fun startLocalVideoCapture(localVideoOutput: SurfaceViewRenderer) {
-        val surfaceTextureHelper = SurfaceTextureHelper.create(Thread.currentThread().name, rootEglBase.eglBaseContext)
-        (videoCapturer as VideoCapturer).initialize(surfaceTextureHelper, localVideoOutput.context, localVideoSource.capturerObserver)
-        videoCapturer.startCapture(320, 240, 60)
-        val localVideoTrack = peerConnectionFactory.createVideoTrack(LOCAL_TRACK_ID, localVideoSource)
+        val surfaceTextureHelper =
+            SurfaceTextureHelper.create(Thread.currentThread().name, rootEglBase.eglBaseContext)
+
+        (videoCapturer as VideoCapturer).initialize(
+            surfaceTextureHelper,
+            localVideoOutput.context,
+            localVideoSource.capturerObserver
+        )
+
+        videoCapturer.startCapture(1920, 1080, 30)
+
+        val localVideoTrack =
+            peerConnectionFactory.createVideoTrack(LOCAL_TRACK_ID, localVideoSource)
+
         localVideoTrack.addSink(localVideoOutput)
+
         val localStream = peerConnectionFactory.createLocalMediaStream(LOCAL_STREAM_ID)
+
         localStream.addTrack(localVideoTrack)
         peerConnection?.addStream(localStream)
     }
@@ -180,4 +211,8 @@ class RTCClient(
     fun addIceCandidate(iceCandidate: IceCandidate?) {
         peerConnection?.addIceCandidate(iceCandidate)
     }
+}
+
+interface CameraControlsListener {
+    fun onSwitchCamera(shouldMirror: Boolean)
 }

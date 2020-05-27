@@ -24,7 +24,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var rtcClient: RTCClient
-    private lateinit var signallingClient: SignallingClient
+    private lateinit var signallingClient: FirebaseSignallingClient
+    private var isCaller = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,39 +42,47 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onCameraPermissionGranted() {
-        signallingClient = SignallingClient(createSignallingClientListener())
+        signallingClient = FirebaseSignallingClient(createSignallingClientListener())
+
+        rtcClient = RTCClient(
+            application,
+            object : PeerConnectionObserver() {
+                override fun onIceCandidate(p0: IceCandidate?) {
+                    super.onIceCandidate(p0)
+                    signallingClient.collectIceCandidates(p0, ROOM_ID, if (isCaller) "callerCandidates" else "calleeCandidates")
+                    signallingClient.getRemoteIceCandidates(ROOM_ID, if (isCaller) "calleeCandidates" else "callerCandidates")
+                    rtcClient.addIceCandidate(p0)
+                }
+
+                override fun onAddStream(p0: MediaStream?) {
+                    super.onAddStream(p0)
+                    Timber.tag("WEB_RTC").e("onAddStream")
+                    p0?.videoTracks?.get(0)?.addSink(remote_view)
+                }
+            },
+            object : CameraControlsListener {
+                override fun onSwitchCamera(shouldMirror: Boolean) {
+                    local_view.setMirror(shouldMirror)
+                }
+            },
+            signallingClient
+        )
+        rtcClient.initSurfaceView(remote_view)
+        rtcClient.initSurfaceView(local_view)
+        rtcClient.startLocalVideoCapture(local_view)
 
         create_room_button.setOnClickListener {
+            isCaller = true
             signallingClient.createRoom()
         }
 
         join_room_button.setOnClickListener {
-            ROOM_ID = join_room_edit_text.text.toString()
-            rtcClient = RTCClient(
-                application,
-                object : PeerConnectionObserver() {
-                    override fun onIceCandidate(p0: IceCandidate?) {
-                        super.onIceCandidate(p0)
-                        Timber.tag("WEB_RTC").e("join_room_button onIceCandidate")
-                        signallingClient.collectIceCandidates(p0, ROOM_ID, "calleeCandidates")
-                        signallingClient.getRemoteIceCandidates(ROOM_ID, "callerCandidates")
-                        rtcClient.addIceCandidate(p0)
-                    }
-
-                    override fun onAddStream(p0: MediaStream?) {
-                        super.onAddStream(p0)
-                        p0?.videoTracks?.get(0)?.addSink(remote_view)
-                    }
-                },
-                signallingClient
-            )
-
-            rtcClient.initSurfaceView(remote_view)
-            rtcClient.initSurfaceView(local_view)
-            rtcClient.startLocalVideoCapture(local_view)
-
+            isCaller = false
+            ROOM_ID = join_room_edit_text.text?.trim().toString()
             signallingClient.getRemoteOffer(ROOM_ID)
         }
+
+        switch_camera_button.setOnClickListener { rtcClient.switchCamera() }
     }
 
     private fun createSignallingClientListener() = object : SignallingClientListener {
@@ -94,27 +103,6 @@ class MainActivity : AppCompatActivity() {
         override fun onRoomCreated(id: String) {
             ROOM_ID = id
             room_id_text.text = "Room ID: $id"
-            rtcClient = RTCClient(
-                application,
-                object : PeerConnectionObserver() {
-                    override fun onIceCandidate(p0: IceCandidate?) {
-                        super.onIceCandidate(p0)
-                        signallingClient.collectIceCandidates(p0, id, "callerCandidates")
-                        signallingClient.getRemoteIceCandidates(id, "calleeCandidates")
-                        //rtcClient.addIceCandidate(p0)
-                    }
-
-                    override fun onAddStream(p0: MediaStream?) {
-                        super.onAddStream(p0)
-                        p0?.videoTracks?.get(0)?.addSink(remote_view)
-                    }
-                },
-                signallingClient
-            )
-
-            rtcClient.initSurfaceView(remote_view)
-            rtcClient.initSurfaceView(local_view)
-            rtcClient.startLocalVideoCapture(local_view)
 
             rtcClient.call()
         }

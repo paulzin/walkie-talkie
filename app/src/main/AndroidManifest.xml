@@ -15,7 +15,11 @@
         android:theme="@style/AppTheme"
         tools:ignore="AllowBackup,GoogleAppIndexingWarning"
         android:name=".Application">
-        <activity android:name="com.pzin.walkietalkie.MainActivity">
+        <activity
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize"
+            android:name="com.pzin.walkietalkie.MainActivity"
+            tools:ignore="LockedOrientationActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
